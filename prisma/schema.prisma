@@ -1,0 +1,230 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../generated/prisma"
+}
+
+datasource db {
+  provider = "mysql"
+}
+
+model Wallet {
+  id           Int           @id @default(autoincrement())
+  address      String        @unique
+  balance      Int           @default(0)
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+  users        User[]
+  transactions Transaction[]
+}
+
+model User {
+  id            Int      @id @default(autoincrement())
+  name          String?
+  email         String   @unique
+  passwordHash  String
+  walletAddress String?  @unique
+  walletId      Int?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  wallet Wallet? @relation(fields: [walletId], references: [id])
+
+  sessions Session[]
+
+  skills Skill[]
+
+  enrollments Enrollment[] @relation("StudentEnrollments")
+
+  walletDirectoryEntries WalletDirectory[]
+
+  /**
+   * =======================================================
+   * MESSAGING
+   * =======================================================
+   * Conversation เป็นแชต 1 ต่อ 1
+   * user1 / user2
+   * ใช้ Relation Name แยกกัน
+   */
+  conversationsAsUser1 Conversation[] @relation("ConversationUser1")
+  conversationsAsUser2 Conversation[] @relation("ConversationUser2")
+
+  /**
+   * ข้อความที่ User นี้ส่ง
+   */
+  sentMessages Message[] @relation("SentMessages")
+
+  @@index([walletId])
+}
+
+model Session {
+  id                     Int       @id @default(autoincrement())
+  token                  String    @unique
+  userId                 Int
+  expiresAt              DateTime
+  createdAt              DateTime  @default(now())
+  walletNonce            String?
+  walletNonceExpires     DateTime?
+  connectedWalletAddress String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([connectedWalletAddress])
+}
+
+model WalletDirectory {
+  id        Int      @id @default(autoincrement())
+  address   String   @unique
+  userId    Int
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+model Skill {
+  id            Int      @id @default(autoincrement())
+  title         String
+  description   String
+  price         Int
+  category      String?
+  payoutAddress String?
+  createdAt     DateTime @default(now())
+  ownerId       Int
+
+  owner User @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+
+  enrollments Enrollment[]
+
+  lessons Lesson[]
+
+  @@index([ownerId])
+  @@index([category])
+}
+
+model Enrollment {
+  id            Int      @id @default(autoincrement())
+  skillId       Int
+  studentId     Int
+  status        String   @default("active")
+  paidAmount    Int      @default(0)
+  paymentTxHash String?  @unique
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  skill Skill @relation(fields: [skillId], references: [id], onDelete: Cascade)
+
+  student User @relation("StudentEnrollments", fields: [studentId], references: [id], onDelete: Cascade)
+
+  lessonProgress LessonProgress[]
+
+  @@unique([skillId, studentId])
+  @@index([skillId])
+  @@index([studentId])
+  @@index([status])
+}
+
+model Lesson {
+  id        Int      @id @default(autoincrement())
+  skillId   Int
+  title     String
+  content   String   @db.LongText
+  videoUrl  String?
+  position  Int
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  skill Skill @relation(fields: [skillId], references: [id], onDelete: Cascade)
+
+  progress LessonProgress[]
+
+  @@unique([skillId, position])
+  @@index([skillId])
+}
+
+model LessonProgress {
+  id           Int       @id @default(autoincrement())
+  lessonId     Int
+  enrollmentId Int
+  status       String    @default("not_started")
+  lastViewedAt DateTime?
+  completedAt  DateTime?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  lesson Lesson @relation(fields: [lessonId], references: [id], onDelete: Cascade)
+
+  enrollment Enrollment @relation(fields: [enrollmentId], references: [id], onDelete: Cascade)
+
+  @@unique([lessonId, enrollmentId])
+  @@index([lessonId])
+  @@index([enrollmentId])
+  @@index([status])
+}
+
+model Transaction {
+  id          Int      @id @default(autoincrement())
+  walletId    Int
+  type        String
+  amount      Int
+  description String?
+  createdAt   DateTime @default(now())
+
+  wallet Wallet @relation(fields: [walletId], references: [id], onDelete: Cascade)
+
+  @@index([walletId])
+}
+
+/**
+ * =========================================================
+ * CONVERSATION
+ * =========================================================
+ * ห้องสนทนาแบบ 1 ต่อ 1
+ * API จะจัด userId ที่น้อยกว่าไว้ user1Id
+ * และ userId ที่มากกว่าไว้ user2Id
+ * ทำให้ User คู่เดียวกัน
+ * มีห้องแชตได้เพียงห้องเดียว
+ */
+model Conversation {
+  id        Int      @id @default(autoincrement())
+  user1Id   Int
+  user2Id   Int
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user1 User @relation("ConversationUser1", fields: [user1Id], references: [id], onDelete: Cascade)
+
+  user2 User @relation("ConversationUser2", fields: [user2Id], references: [id], onDelete: Cascade)
+
+  messages Message[]
+
+  @@unique([user1Id, user2Id])
+  @@index([user1Id])
+  @@index([user2Id])
+  @@index([updatedAt])
+}
+
+/**
+ * =========================================================
+ * MESSAGE
+ * =========================================================
+ */
+model Message {
+  id             Int       @id @default(autoincrement())
+  conversationId Int
+  senderId       Int
+  content        String    @db.Text
+  readAt         DateTime?
+  createdAt      DateTime  @default(now())
+
+  conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  sender User @relation("SentMessages", fields: [senderId], references: [id], onDelete: Cascade)
+
+  @@index([conversationId])
+  @@index([conversationId, createdAt])
+  @@index([senderId])
+  @@index([readAt])
+}
